@@ -41,10 +41,12 @@
 
 ;;; Code:
 
+;;;; Plumbing:
+
+(require 'seq)
 (declare-function dbus-list-activatable-names "dbus" (&optional bus))
 (declare-function dbus-call-method "dbus" (bus service path interface method &rest args))
 (declare-function dbus-get-property "dbus" (bus service path interface property))
-(require 'seq)
 
 (defun system-idle--poll-mac ()
   "Copy of `org-mac-idle-seconds'."
@@ -79,7 +81,7 @@
 
 ;; https://unix.stackexchange.com/questions/396911/how-can-i-tell-if-a-user-is-idle-in-wayland
 (defun system-idle--poll-gnome ()
-  "Check Mutter's idea of idle time, even on Wayland."
+  "Check Mutter\\='s idea of idle time, even on Wayland."
   (let* ((output (with-temp-buffer
                    (call-process "dbus-send" nil (current-buffer) nil
                                  "--print-reply"
@@ -97,6 +99,7 @@
 ;; https://github.com/marvin1099/wayidletool
 (defvar system-idle--swayidle-process nil)
 (defun system-idle--ensure-swayidle ()
+  "Ensure that our Swayidle instance is running."
   (when (not (process-live-p system-idle--swayidle-process))
     (setq system-idle--swayidle-process
           (start-process-shell-command
@@ -116,6 +119,9 @@ Returns 0 if invoked during the first 9 seconds."
               (time-since (file-attribute-modification-time attr))))
       0)))
 
+
+;;;; Porcelain:
+
 (defvar system-idle-seconds-function nil
   "Function to be invoked by `system-idle-seconds', must return a number.")
 
@@ -129,14 +135,16 @@ application in focus.
 
 Always returns a number."
   (unless system-idle-seconds-function
-    (system-idle-recalculate-variables t))
+    (system-idle-reconfigure t))
   (let ((value (funcall system-idle-seconds-function)))
     (if (numberp value)
         value
       (error "Function at system-idle-seconds-function did not return a number"))))
 
-(defun system-idle-recalculate-variables (&optional assert)
-  "Try to set `system-idle-seconds-function', signal fails if ASSERT."
+;; TODO: Detect Sway and other Wayland compositors that support ext-idle-notify.
+(defun system-idle-reconfigure (&optional assert)
+  "Try to set up needed variables and return non-nil.
+Upon failure to do so, signal an error if ASSERT, else return nil."
   (setq system-idle--x11-program
         (seq-find #'executable-find '("x11idle" "xprintidle")))
   (setq system-idle--dbus-session-path
@@ -153,9 +161,10 @@ Always returns a number."
   (setq system-idle-seconds-function
         (or (and (eq system-type 'darwin)
                  #'system-idle--poll-mac)
-            (let ((DESKTOP_SESSION (getenv "DESKTOP_SESSION"))
-                  ;; TODO: Use this instead, the above envvar is deprecated.
-                  (XDG_CURRENT_DESKTOP (getenv "XDG_CURRENT_DESKTOP")))
+            (let (;; TODO: Use this instead, it's the new standard
+                  ;; https://unix.stackexchange.com/questions/116539/how-to-detect-the-desktop-environment-in-a-bash-script
+                  ;; (XDG_CURRENT_DESKTOP (getenv "XDG_CURRENT_DESKTOP"))
+                  (DESKTOP_SESSION (getenv "DESKTOP_SESSION")))
               (and DESKTOP_SESSION
                    (not (string-search "xorg" DESKTOP_SESSION))
                    (if (string-match-p (rx word-boundary (or "gnome" "ubuntu"))
@@ -171,7 +180,7 @@ Always returns a number."
                  #'system-idle--poll-logind)
             ;; NOTE: This condition is also true under XWayland, so it must come
             ;; after all other checks for Wayland compositors if we want it to be
-            ;; invoked under true X only.
+            ;; invoked under "true" X only.
             (and (eq window-system 'x)
                  (if system-idle--x11-program
                      #'system-idle--poll-x11
@@ -181,7 +190,7 @@ Always returns a number."
               (error "system-idle: Could not get idle time on this system")))))
 
 ;; Maybe call `system-idle--ensure-swayidle' early.
-(system-idle-recalculate-variables)
+(system-idle-reconfigure)
 
 (provide 'system-idle)
 
