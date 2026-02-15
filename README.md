@@ -29,3 +29,7 @@ To test that it works, eval the following and do not touch the computer for 11 s
 
 Not guaranteed to return correct results if user has switched from the graphical desktop to a TTY console and is in the console by the time it is called.
 
+
+# Similar projects
+
+Python https://github.com/bkbilly/dbus_idle
